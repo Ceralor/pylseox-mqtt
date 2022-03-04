@@ -20,20 +20,25 @@ class ReadDelegate(btle.DefaultDelegate):
             if len(data) == 7 and data[0] == 241:
                 ble_fail_count = 0
                 #q.put(data)
-                print(f"SpO2: {data[1]}% \tBPM: {data[2]} \tPI: {data[4]/10.0}%")
-                mqttc.publish('pulseox/spo2',data[1])
-                mqttc.publish('pulseox/bpm',data[2])
-                mqttc.publish('pulseox/pi',data[4]/10.0)
-                # if verbose:
-                #     print("SpO2: " + str(ord(data[7])) + "%\tHR: " + str(ord(data[8])) + " bpm\tPI: " + str(ord(data[17])) + "\tMovement: " + str(ord(data[16])) + "\tBattery: " + str(ord(data[14])) + "%")
-                # if client.connected_flag:
-                #     client.publish('sensors', '{"SpO2":' + str(ord(data[7])) + ',"HR":' + str(ord(data[8])) + ',"PI":' + str(ord(data[17])) + ',"Movement":' + str(ord(data[16])) + ',"Battery":' + str(ord(data[14])) + '}')
-                # if ble_fail_count >= (ble_inactivity_timeout / ble_read_period):
-                #     # disconnect from device to conserve power
-                #     print("BLE: Inactivity timeout, disconnecting...")
-                #     ble_fail_count = 0
-                #     ble_next_reconnect_delay = ble_inactivity_delay
-                #     peripheral.disconnect()
+                calibrating = False
+                if data[1] == 127:
+                    calibrating = True
+                    mqttc.publish('pulseox/status','calibrating')
+                    print("Calibrating...")
+                else:
+                    print(f"SpO2: {data[1]}% \tBPM: {data[2]} \tPI: {data[4]/10.0}%")
+                    mqttc.publish('pulseox/spo2',data[1])
+                    mqttc.publish('pulseox/bpm',data[2])
+                    mqttc.publish('pulseox/pi',data[4]/10.0)
+                    if calibrating == True:
+                        calibrating = False
+                        mqttc.publish('pulseox/status','reading')
+                if ble_fail_count >= (ble_inactivity_timeout / ble_read_period):
+                    # disconnect from device to conserve power
+                    print("BLE: Inactivity timeout, disconnecting...")
+                    ble_fail_count = 0
+                    ble_next_reconnect_delay = ble_inactivity_delay
+                    peripheral.disconnect()
             elif data[0] == 240:
                 ble_fail_count = 0
                 mqttc.publish('pulseox/ppg',json.dumps([x for x in data[1:-1]]))
