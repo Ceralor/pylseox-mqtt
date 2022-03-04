@@ -20,19 +20,15 @@ class ReadDelegate(btle.DefaultDelegate):
             if len(data) == 7 and data[0] == 241:
                 ble_fail_count = 0
                 #q.put(data)
-                calibrating = False
                 if data[1] > 100 or data[2] > 200:
-                    calibrating = True
                     mqttc.publish('pulseox/status','calibrating')
                     print("Calibrating...")
                 elif data[1] <= 100 and data[2] <= 200:
                     print(f"SpO2: {data[1]}% \tBPM: {data[2]} \tPI: {data[4]/10.0}%")
+                    mqttc.publish('pulseox/status','reading')
                     mqttc.publish('pulseox/spo2',data[1])
                     mqttc.publish('pulseox/bpm',data[2])
                     mqttc.publish('pulseox/pi',data[4]/10.0)
-                    if calibrating == True:
-                        calibrating = False
-                        mqttc.publish('pulseox/status','reading')
                 else:
                     mqttc.publish('pulseox/status', 'off')
 
