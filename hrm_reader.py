@@ -1,10 +1,9 @@
-import time
-import sys
+import time, os, sys
 from bluepy import btle
 from datetime import datetime
-from datetime import timedelta
-from multiprocessing import Process, Queue
-import csv
+#from multiprocessing import Process, Queue
+from dotenv import dotenv_values
+import paho.mqtt.client as mqtt
 
 class ReadDelegate(btle.DefaultDelegate):
     def __init__(self):
@@ -14,12 +13,16 @@ class ReadDelegate(btle.DefaultDelegate):
         global ble_fail_count
         global ble_next_reconnect_delay
         global packets_by_type
+        global mqttc
         #global q
         try:
             if len(data) == 7 and data[0] == 241:
                 ble_fail_count = 0
                 #q.put(data)
                 print(f"SpO2: {data[1]}% \tBPM: {data[2]} \tPI: {data[4]/10.0}%")
+                mqttc.publish('pulseox/spo2',data[1])
+                mqttc.publish('pulseox/bpm',data[2])
+                mqttc.publish('pulseox/pi',data[4]/10.0)
                 # if verbose:
                 #     print("SpO2: " + str(ord(data[7])) + "%\tHR: " + str(ord(data[8])) + " bpm\tPI: " + str(ord(data[17])) + "\tMovement: " + str(ord(data[16])) + "\tBattery: " + str(ord(data[14])) + "%")
                 # if client.connected_flag:
@@ -30,15 +33,18 @@ class ReadDelegate(btle.DefaultDelegate):
                 #     ble_fail_count = 0
                 #     ble_next_reconnect_delay = ble_inactivity_delay
                 #     peripheral.disconnect()
-
+            elif data[0] == 240:
+                ble_fail_count = 0
+                mqttc.publish('pulseox/ppg',data[1:-1])
         except Exception as e:
             print(f"Data Handler Exception: {e}")
 
 if __name__ == "__main__":
+    config = dotenv_values()
 
     # ble config params
     # ble address of device
-    ble_address = "FF:FF:FF:FF:36:12"
+    ble_address = config['ble_address']
     # seconds to wait between reads
     ble_read_period = 2
     # seconds to wait between btle reconnection attempts
@@ -53,9 +59,11 @@ if __name__ == "__main__":
     # other params
     ble_next_reconnect_delay = ble_reconnect_delay
     ble_fail_count = 0
- 
+    mqttc = mqtt.Client()
+    mqttc.username_pw_set(config['mqtt_user'],config['mqtt_pass'])
+    mqttc.connect(config['mqtt_host'])
     peripheral = btle.Peripheral()
-
+    mqttc.loop_start()
     while True:
         try:
             last_time = datetime.now()
@@ -68,12 +76,8 @@ if __name__ == "__main__":
             print(f"BLE: Connected to device {ble_address}")
             # Set the notification delegate
             peripheral.setDelegate(ReadDelegate())
-            write_handle = None
             subscribe_handle = None
-            # magic stuff for the Viatom GATT service
             ble_uuid = "0000fff0-0000-1000-8000-00805f9b34fb"
-            # ble_write_uuid_prefix = "8b00ace7"
-            # write_bytes = b'\xaa\x17\xe8\x00\x00\x00\x00\x1b'
 
             # this is general magic GATT stuff
             # notify handles will have a UUID that begins with this
@@ -84,14 +88,10 @@ if __name__ == "__main__":
             service = peripheral.getServiceByUUID(ble_uuid)
             if service is not None:
                 print(f"Found service: {service}")
-                #chars = service.getCharacteristics()
-                #for char in chars:
-                #print("  char: " + str(char) + ", handle: " + str(char.handle) + ", props: " + str(char.properties))
                 descs = service.getDescriptors()
                 # this is the important part-
                 # find the handles that we will write to and subscribe for notifications
                 for desc in descs:
-                    #print("  desc: " + str(desc))
                     str_uuid = str(desc.uuid).lower()
                     if str_uuid.startswith(ble_notify_uuid_prefix):
                         subscribe_handle = desc.handle
@@ -100,9 +100,6 @@ if __name__ == "__main__":
             if subscribe_handle is not None:
                 # we found the handles that we need
                 print("Found required handle")
-
-                # this call performs the subscribe for notifications
-                # response = peripheral.writeCharacteristic(subscribe_handle, subscribe_bytes, withResponse=True)
 
                 # now that we're subscribed for notifications, waiting for TX/RX...
                 print("Reading from device...")
