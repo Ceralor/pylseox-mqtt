@@ -21,11 +21,11 @@ class ReadDelegate(btle.DefaultDelegate):
                 ble_fail_count = 0
                 #q.put(data)
                 calibrating = False
-                if data[1] == 127:
+                if data[1] > 100 or data[2] > 200:
                     calibrating = True
                     mqttc.publish('pulseox/status','calibrating')
                     print("Calibrating...")
-                else:
+                elif data[1] <= 100 and data[2] <= 200:
                     print(f"SpO2: {data[1]}% \tBPM: {data[2]} \tPI: {data[4]/10.0}%")
                     mqttc.publish('pulseox/spo2',data[1])
                     mqttc.publish('pulseox/bpm',data[2])
@@ -33,17 +33,28 @@ class ReadDelegate(btle.DefaultDelegate):
                     if calibrating == True:
                         calibrating = False
                         mqttc.publish('pulseox/status','reading')
+                else:
+                    mqttc.publish('pulseox/status', 'off')
+
                 if ble_fail_count >= (ble_inactivity_timeout / ble_read_period):
                     # disconnect from device to conserve power
                     print("BLE: Inactivity timeout, disconnecting...")
                     ble_fail_count = 0
                     ble_next_reconnect_delay = ble_inactivity_delay
                     peripheral.disconnect()
+                    mqttc.publish('pulseox/status', 'off')
             elif data[0] == 240:
                 ble_fail_count = 0
                 mqttc.publish('pulseox/ppg',json.dumps([x for x in data[1:-1]]))
         except Exception as e:
             print(f"Data Handler Exception: {e}")
+
+def mqtt_flat():
+    mqttc.publish('pulseox/status', 'off')
+    mqttc.publish('pulseox/spo2', '')
+    mqttc.publish('pulseox/bpm', '')
+    mqttc.publish('pulseox/pi', '')
+    mqttc.publish('pulseox/ppg', '')
 
 if __name__ == "__main__":
     config = dotenv_values()
@@ -128,17 +139,24 @@ if __name__ == "__main__":
 
         except KeyboardInterrupt:
             print("KeyboardInterrupt, exiting")
+            mqtt_flat()
             sys.exit()
 
         except Exception as e:
             print(f"Exception: {e}")
+        finally:
+            mqtt_flat()
 
         try:
+            mqtt_flat()
             print(f"BLE: Waiting {ble_next_reconnect_delay} seconds to reconnect...")
             time.sleep(ble_next_reconnect_delay)
             ble_next_reconnect_delay = ble_reconnect_delay
         except KeyboardInterrupt:
             print("KeyboardInterrupt, exiting")
+            mqtt_flat()
             sys.exit()
         except Exception as e:
             print(f"Exception: {e}")
+        finally:
+            mqtt_flat()
