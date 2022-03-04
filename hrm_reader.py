@@ -4,6 +4,7 @@ from datetime import datetime
 #from multiprocessing import Process, Queue
 from dotenv import dotenv_values
 import paho.mqtt.client as mqtt
+import json
 
 class ReadDelegate(btle.DefaultDelegate):
     def __init__(self):
@@ -35,7 +36,7 @@ class ReadDelegate(btle.DefaultDelegate):
                 #     peripheral.disconnect()
             elif data[0] == 240:
                 ble_fail_count = 0
-                mqttc.publish('pulseox/ppg',data[1:-1])
+                mqttc.publish('pulseox/ppg',json.dumps([x for x in data[1:-1]]))
         except Exception as e:
             print(f"Data Handler Exception: {e}")
 
