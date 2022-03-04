@@ -1,2 +1,2 @@
 bluepy
-paho_mqtt
+paho-mqtt
